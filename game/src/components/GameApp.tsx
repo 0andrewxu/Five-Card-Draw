@@ -1,7 +1,7 @@
 import { ConnectButton } from '@rainbow-me/rainbowkit';
-import { useAccount, useReadContract } from 'wagmi';
+import { useAccount, usePublicClient, useReadContract } from 'wagmi';
 import { CONTRACT_ADDRESS, CONTRACT_ABI } from '../config/contracts';
-import { useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useEthersSigner } from '../hooks/useEthersSigner';
 import { useZamaInstance } from '../hooks/useZamaInstance';
 import { ethers } from 'ethers';
@@ -14,16 +14,40 @@ function toDigest(gameId: bigint, choice: number) {
 
 export function GameApp() {
   const { address, isConnected } = useAccount();
+  const publicClient = usePublicClient();
   const signerPromise = useEthersSigner();
   const { instance } = useZamaInstance();
-  const [gameIdInput, setGameIdInput] = useState<string>('');
   const [activeGameId, setActiveGameId] = useState<bigint | null>(null);
   const [picking, setPicking] = useState<number | null>(null);
+  const [games, setGames] = useState<Array<{
+    id: bigint;
+    player1: string;
+    player2: string;
+    publicCards: number[];
+    hasSel1: boolean;
+    hasSel2: boolean;
+    status: number;
+    winner: string;
+    claimed: boolean;
+  }>>([]);
+  const [gamesLoading, setGamesLoading] = useState<boolean>(false);
+  const [refreshCounter, setRefreshCounter] = useState<number>(0);
 
-  const { data: nextGameId } = useReadContract({
+  const statusLabels = useMemo(
+    () => ['Waiting for Player', 'Waiting Selections', 'Opened', 'Finished'],
+    [],
+  );
+
+  const formatAddress = useCallback((value?: string) => {
+    if (!value || value === ethers.ZeroAddress) return '—';
+    return `${value.slice(0, 6)}...${value.slice(-4)}`;
+  }, []);
+
+  const { data: nextGameId, refetch: refetchNextGame } = useReadContract({
     abi: CONTRACT_ABI as any,
     address: CONTRACT_ADDRESS as `0x${string}`,
     functionName: 'nextGameId',
+    query: { refetchOnWindowFocus: false },
   });
 
   const { data: gameData, refetch: refetchGame } = useReadContract({
@@ -31,6 +55,7 @@ export function GameApp() {
     address: CONTRACT_ADDRESS as `0x${string}`,
     functionName: 'getGame',
     args: activeGameId ? [activeGameId] : undefined,
+    query: { enabled: !!activeGameId },
   });
 
   const { data: selections } = useReadContract({
@@ -45,7 +70,34 @@ export function GameApp() {
     const signer = await signerPromise!;
     const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI as any, signer);
     const tx = await contract.createGame({ value: 1000000000000000n });
-    await tx.wait();
+    const receipt = await tx.wait();
+
+    let createdId: bigint | null = null;
+    for (const log of receipt?.logs ?? []) {
+      if (log.address.toLowerCase() !== CONTRACT_ADDRESS.toLowerCase()) continue;
+      try {
+        const parsed = contract.interface.parseLog(log);
+        if (!parsed) continue;
+        if (parsed.name === 'GameCreated') {
+          createdId = parsed.args.gameId as bigint;
+          break;
+        }
+      } catch (err) {
+        continue;
+      }
+    }
+
+    if (createdId && createdId > 0n) {
+      setActiveGameId(createdId);
+    } else {
+      const latest = await refetchNextGame();
+      const data = latest.data as bigint | undefined;
+      if (data && data > 0n) {
+        setActiveGameId(data - 1n);
+      }
+    }
+
+    setRefreshCounter((value) => value + 1);
   };
 
   const joinGame = async (gid: bigint) => {
@@ -55,6 +107,7 @@ export function GameApp() {
     await tx.wait();
     setActiveGameId(gid);
     await refetchGame();
+    setRefreshCounter((value) => value + 1);
   };
 
   const submitSelection = async (choice: number) => {
@@ -71,6 +124,7 @@ export function GameApp() {
     await tx.wait();
     setPicking(null);
     await refetchGame();
+    setRefreshCounter((value) => value + 1);
   };
 
   const claim = async () => {
@@ -107,10 +161,77 @@ export function GameApp() {
       const tx = await contract.claim(activeGameId, p1, p2);
       await tx.wait();
       await refetchGame();
+      setRefreshCounter((value) => value + 1);
     } catch (e) {
       console.error('claim failed', e);
     }
   };
+
+  const loadGames = useCallback(async () => {
+    if (!publicClient || !nextGameId) {
+      setGames([]);
+      return;
+    }
+
+    const total = Number(nextGameId);
+    if (total <= 1) {
+      setGames([]);
+      return;
+    }
+
+    const ids = Array.from({ length: total - 1 }, (_, index) => BigInt(index + 1));
+    setGamesLoading(true);
+    try {
+      const response = await publicClient.multicall({
+        allowFailure: true,
+        contracts: ids.map((id) => ({
+          address: CONTRACT_ADDRESS as `0x${string}`,
+          abi: CONTRACT_ABI as any,
+          functionName: 'getGame',
+          args: [id],
+        })),
+      });
+
+      const formatted = response
+        .map((entry, index) => {
+          if (entry.status !== 'success') return null;
+          const [player1, player2, publicCards, hasSel1, hasSel2, status, winner, claimed] = entry.result as any[];
+          if (!player1 || player1 === ethers.ZeroAddress) return null;
+          return {
+            id: ids[index],
+            player1,
+            player2,
+            publicCards: (publicCards as Array<number | bigint>).map((card) => Number(card)),
+            hasSel1,
+            hasSel2,
+            status: Number(status),
+            winner,
+            claimed,
+          };
+        })
+        .filter(Boolean) as Array<{
+          id: bigint;
+          player1: string;
+          player2: string;
+          publicCards: number[];
+          hasSel1: boolean;
+          hasSel2: boolean;
+          status: number;
+          winner: string;
+          claimed: boolean;
+        }>;
+
+      setGames(formatted.sort((a, b) => Number(b.id - a.id)));
+    } catch (error) {
+      console.error('Failed to load games', error);
+    } finally {
+      setGamesLoading(false);
+    }
+  }, [publicClient, nextGameId]);
+
+  useEffect(() => {
+    void loadGames();
+  }, [loadGames, refreshCounter]);
 
   const renderBoard = () => {
     if (!gameData) return null;
@@ -166,13 +287,58 @@ export function GameApp() {
             <div>Next Game ID: {String(nextGameId || '')}</div>
           </div>
 
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <input placeholder="Game ID" value={gameIdInput} onChange={(e) => setGameIdInput(e.target.value)}
-              style={{ padding: 8, border: '1px solid #ddd', borderRadius: 6 }} />
-            <button onClick={() => setActiveGameId(BigInt(gameIdInput))}
-              style={{ padding: '8px 12px', borderRadius: 6, border: '1px solid #ddd' }}>Load</button>
-            <button onClick={() => joinGame(BigInt(gameIdInput))}
-              style={{ padding: '8px 12px', borderRadius: 6, border: '1px solid #ddd' }}>Join (0.001 ETH)</button>
+          <div style={{ marginTop: 8 }}>
+            <h3 style={{ marginBottom: 12 }}>Games</h3>
+            {gamesLoading ? (
+              <div>Loading games…</div>
+            ) : games.length === 0 ? (
+              <div>No games yet. Create the first one!</div>
+            ) : (
+              <div style={{ display: 'grid', gap: 12 }}>
+                {games.map((game) => {
+                  const isActive = activeGameId === game.id;
+                  const canJoin =
+                    game.status === 0 &&
+                    game.player1 !== ethers.ZeroAddress &&
+                    game.player2 === ethers.ZeroAddress &&
+                    (!address || address.toLowerCase() !== game.player1.toLowerCase());
+
+                  return (
+                    <div
+                      key={String(game.id)}
+                      style={{
+                        padding: 16,
+                        borderRadius: 8,
+                        border: isActive ? '2px solid #6366f1' : '1px solid #e5e7eb',
+                        background: '#fff',
+                        display: 'grid',
+                        gap: 8,
+                      }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div>Game #{String(game.id)}</div>
+                        <div>Status: {statusLabels[game.status] ?? 'Unknown'}</div>
+                      </div>
+                      <div>Players: {formatAddress(game.player1)} vs {formatAddress(game.player2)}</div>
+                      <div>Public Cards: {game.publicCards.join(', ')}</div>
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                        <button
+                          onClick={() => setActiveGameId(game.id)}
+                          style={{ padding: '8px 12px', borderRadius: 6, border: '1px solid #ddd' }}>
+                          View Details
+                        </button>
+                        {canJoin && (
+                          <button
+                            onClick={() => joinGame(game.id)}
+                            style={{ padding: '8px 12px', borderRadius: 6, background: '#111', color: '#fff' }}>
+                            Join (0.001 ETH)
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           {activeGameId && renderBoard()}
