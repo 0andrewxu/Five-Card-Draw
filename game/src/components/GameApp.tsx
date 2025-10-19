@@ -180,6 +180,18 @@ export function GameApp() {
       ) : (
         <div>Please connect wallet on Sepolia to play.</div>
       )}
+
+      <div style={{ marginTop: 32, padding: 16, background: '#fff', borderRadius: 8, border: '1px solid #e5e7eb' }}>
+        <h3 style={{ marginTop: 0, marginBottom: 12 }}>How to Play</h3>
+        <ol style={{ paddingLeft: 20, margin: 0, display: 'grid', gap: 8 }}>
+          <li>Create a new game or join an open game. Each action requires a 0.001 ETH stake.</li>
+          <li>Once two players are seated, the contract reveals five public cards numbered 1 through 13.</li>
+          <li>Each player privately selects one of the public cards. Selections are encrypted with Zama FHE and can overlap.</li>
+          <li>The final player to submit triggers reveal. Both encrypted choices are decrypted on-chain.</li>
+          <li>If both players chose the same card, the pot is burned and nobody wins. Otherwise, the higher card wins the 0.002 ETH pot.</li>
+          <li>The winner uses the claim button to withdraw the reward after the reveal.</li>
+        </ol>
+      </div>
     </div>
   );
 }
