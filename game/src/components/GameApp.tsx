@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useEthersSigner } from '../hooks/useEthersSigner';
 import { useZamaInstance } from '../hooks/useZamaInstance';
 import { ethers } from 'ethers';
+import styles from './GameApp.module.css';
 
 function toDigest(gameId: bigint, choice: number) {
   const abi = new ethers.AbiCoder();
@@ -236,128 +237,200 @@ export function GameApp() {
   const renderBoard = () => {
     if (!gameData) return null;
     const [p1, p2, cards, hasSel1, hasSel2, status, winner] = gameData as any[];
+    const statusNum = Number(status);
 
     return (
-      <div style={{ maxWidth: 800, margin: '24px auto', padding: 16, background: '#fff', borderRadius: 8 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
-          <div>Game #{String(activeGameId)}</div>
-          <div>Status: {['WaitingForPlayer','WaitingSelections','Opened','Finished'][Number(status)]}</div>
+      <div className={styles.gameBoard}>
+        <div className={styles.gameBoardHeader}>
+          <h2 className={styles.gameBoardTitle}>Game #{String(activeGameId)}</h2>
+          <div className={`${styles.statusBadge} ${
+            statusNum === 0 ? styles.statusWaiting :
+            statusNum === 1 ? styles.statusActive :
+            statusNum === 2 ? styles.statusOpened :
+            styles.statusFinished
+          }`}>
+            {statusLabels[statusNum]}
+          </div>
         </div>
-        <div style={{ marginBottom: 12 }}>Players: {p1} vs {p2}</div>
-        <div style={{ marginBottom: 12 }}>Public Cards: {cards.join(', ')}</div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          {cards.map((c: number) => (
-            <button key={c}
-              disabled={Boolean(picking) || Boolean(hasSel1 && address === p1) || Boolean(hasSel2 && address === p2) || Number(status) !== 1}
-              onClick={() => submitSelection(c)}
-              style={{ padding: '8px 12px', borderRadius: 6, border: '1px solid #ddd', cursor: 'pointer' }}>
-              Pick {c}
-            </button>
-          ))}
+
+        <div className={styles.playersSection}>
+          <div className={`${styles.playerCard} ${address?.toLowerCase() === p1.toLowerCase() ? styles.playerCardActive : ''}`}>
+            <div className={styles.playerLabel}>Player 1</div>
+            <div className={styles.playerAddress}>{formatAddress(p1)}</div>
+            <div className={`${styles.selectionStatus} ${hasSel1 ? styles.selectionSubmitted : styles.selectionPending}`}>
+              {hasSel1 ? '✓ Submitted' : '⏳ Pending'}
+            </div>
+          </div>
+          <div className={`${styles.playerCard} ${address?.toLowerCase() === p2.toLowerCase() ? styles.playerCardActive : ''}`}>
+            <div className={styles.playerLabel}>Player 2</div>
+            <div className={styles.playerAddress}>{formatAddress(p2)}</div>
+            <div className={`${styles.selectionStatus} ${hasSel2 ? styles.selectionSubmitted : styles.selectionPending}`}>
+              {hasSel2 ? '✓ Submitted' : '⏳ Pending'}
+            </div>
+          </div>
         </div>
-        {Number(status) === 2 && (
-          <div style={{ marginTop: 16 }}>
-            <button onClick={claim} style={{ padding: '10px 16px', borderRadius: 6, background: '#111', color: '#fff' }}>
-              Reveal & Claim 0.002 ETH
+
+        <div className={styles.publicCardsSection}>
+          <div className={styles.sectionLabel}>Public Cards - Choose One</div>
+          <div className={styles.publicCards}>
+            {cards.map((c: number) => (
+              <button
+                key={c}
+                disabled={Boolean(picking) || Boolean(hasSel1 && address === p1) || Boolean(hasSel2 && address === p2) || statusNum !== 1}
+                onClick={() => submitSelection(c)}
+                className={styles.publicCard}>
+                {c}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {statusNum === 2 && (
+          <div className={styles.claimSection}>
+            <button onClick={claim} className={styles.buttonDanger}>
+              🎯 Reveal & Claim 0.002 ETH
             </button>
           </div>
         )}
-        {Number(status) === 3 && (
-          <div style={{ marginTop: 16 }}>Winner: {winner || 'None (tie)'}</div>
+
+        {statusNum === 3 && (
+          <div className={styles.winnerSection}>
+            <p className={styles.winnerText}>
+              {winner && winner !== ethers.ZeroAddress ? '🏆 Winner' : '🤝 Tie - No Winner'}
+            </p>
+            {winner && winner !== ethers.ZeroAddress && (
+              <div className={styles.winnerAddress}>{formatAddress(winner)}</div>
+            )}
+          </div>
         )}
       </div>
     );
   };
 
   return (
-    <div style={{ maxWidth: 900, margin: '0 auto', padding: 16 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <h2>Five Card Draw</h2>
+    <div className={styles.container}>
+      <div className={styles.header}>
+        <div>
+          <h1 className={styles.title}>🎴 Five Card Draw</h1>
+          <div className={styles.subtitle}>Privacy-Preserving Blockchain Card Game</div>
+        </div>
         <ConnectButton />
       </div>
 
       {isConnected ? (
-        <div style={{ display: 'grid', gap: 12 }}>
-          <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-            <button
-              onClick={createGame}
-              style={{ padding: '10px 16px', borderRadius: 6, background: '#111', color: '#fff' }}>
-              Create Game (0.001 ETH)
-            </button>
-            <div>Next Game ID: {String(nextGameId || '')}</div>
-          </div>
-
-          <div style={{ marginTop: 8 }}>
-            <h3 style={{ marginBottom: 12 }}>Games</h3>
-            {gamesLoading ? (
-              <div>Loading games…</div>
-            ) : games.length === 0 ? (
-              <div>No games yet. Create the first one!</div>
-            ) : (
-              <div style={{ display: 'grid', gap: 12 }}>
-                {games.map((game) => {
-                  const isActive = activeGameId === game.id;
-                  const canJoin =
-                    game.status === 0 &&
-                    game.player1 !== ethers.ZeroAddress &&
-                    game.player2 === ethers.ZeroAddress &&
-                    (!address || address.toLowerCase() !== game.player1.toLowerCase());
-
-                  return (
-                    <div
-                      key={String(game.id)}
-                      style={{
-                        padding: 16,
-                        borderRadius: 8,
-                        border: isActive ? '2px solid #6366f1' : '1px solid #e5e7eb',
-                        background: '#fff',
-                        display: 'grid',
-                        gap: 8,
-                      }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <div>Game #{String(game.id)}</div>
-                        <div>Status: {statusLabels[game.status] ?? 'Unknown'}</div>
-                      </div>
-                      <div>Players: {formatAddress(game.player1)} vs {formatAddress(game.player2)}</div>
-                      <div>Public Cards: {game.publicCards.join(', ')}</div>
-                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                        <button
-                          onClick={() => setActiveGameId(game.id)}
-                          style={{ padding: '8px 12px', borderRadius: 6, border: '1px solid #ddd' }}>
-                          View Details
-                        </button>
-                        {canJoin && (
-                          <button
-                            onClick={() => joinGame(game.id)}
-                            style={{ padding: '8px 12px', borderRadius: 6, background: '#111', color: '#fff' }}>
-                            Join (0.001 ETH)
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
+        <>
+          <div className={styles.mainContent}>
+            <div className={styles.card}>
+              <div className={styles.cardHeader}>
+                <h3 className={styles.cardTitle}>Create New Game</h3>
+                <div className={styles.infoBadge}>
+                  Next ID: {String(nextGameId || '—')}
+                </div>
               </div>
-            )}
+              <button onClick={createGame} className={styles.buttonPrimary}>
+                🎮 Create Game (0.001 ETH)
+              </button>
+            </div>
+
+            <div className={styles.card}>
+              <div className={styles.cardHeader}>
+                <h3 className={styles.cardTitle}>Available Games</h3>
+              </div>
+              {gamesLoading ? (
+                <div className={styles.loading}>Loading games...</div>
+              ) : games.length === 0 ? (
+                <div className={styles.emptyState}>
+                  <div className={styles.emptyStateIcon}>🎯</div>
+                  <div className={styles.emptyStateText}>No games yet. Create the first one!</div>
+                </div>
+              ) : (
+                <div className={styles.gamesList}>
+                  {games.map((game) => {
+                    const isActive = activeGameId === game.id;
+                    const canJoin =
+                      game.status === 0 &&
+                      game.player1 !== ethers.ZeroAddress &&
+                      game.player2 === ethers.ZeroAddress &&
+                      (!address || address.toLowerCase() !== game.player1.toLowerCase());
+
+                    return (
+                      <div
+                        key={String(game.id)}
+                        className={`${styles.gameItem} ${isActive ? styles.gameItemActive : ''}`}
+                        onClick={() => setActiveGameId(game.id)}>
+                        <div className={styles.gameHeader}>
+                          <div className={styles.gameId}>Game #{String(game.id)}</div>
+                          <div className={`${styles.statusBadge} ${
+                            game.status === 0 ? styles.statusWaiting :
+                            game.status === 1 ? styles.statusActive :
+                            game.status === 2 ? styles.statusOpened :
+                            styles.statusFinished
+                          }`}>
+                            {statusLabels[game.status] ?? 'Unknown'}
+                          </div>
+                        </div>
+                        <div className={styles.playersInfo}>
+                          Players: <span className={styles.address}>{formatAddress(game.player1)}</span> vs{' '}
+                          <span className={styles.address}>{formatAddress(game.player2)}</span>
+                        </div>
+                        <div className={styles.cardsRow}>
+                          {game.publicCards.map((card) => (
+                            <div key={card} className={styles.cardChip}>
+                              {card}
+                            </div>
+                          ))}
+                        </div>
+                        <div className={styles.gameActions}>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setActiveGameId(game.id);
+                            }}
+                            className={styles.buttonSecondary}>
+                            View Details
+                          </button>
+                          {canJoin && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                joinGame(game.id);
+                              }}
+                              className={styles.buttonPrimary}>
+                              Join (0.001 ETH)
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </div>
 
           {activeGameId && renderBoard()}
-        </div>
-      ) : (
-        <div>Please connect wallet on Sepolia to play.</div>
-      )}
 
-      <div style={{ marginTop: 32, padding: 16, background: '#fff', borderRadius: 8, border: '1px solid #e5e7eb' }}>
-        <h3 style={{ marginTop: 0, marginBottom: 12 }}>How to Play</h3>
-        <ol style={{ paddingLeft: 20, margin: 0, display: 'grid', gap: 8 }}>
-          <li>Create a new game or join an open game. Each action requires a 0.001 ETH stake.</li>
-          <li>Once two players are seated, the contract reveals five public cards numbered 1 through 13.</li>
-          <li>Each player privately selects one of the public cards. Selections are encrypted with Zama FHE and can overlap.</li>
-          <li>The final player to submit triggers reveal. Both encrypted choices are decrypted on-chain.</li>
-          <li>If both players chose the same card, the pot is burned and nobody wins. Otherwise, the higher card wins the 0.002 ETH pot.</li>
-          <li>The winner uses the claim button to withdraw the reward after the reveal.</li>
-        </ol>
-      </div>
+          <div className={styles.howToPlay}>
+            <h3 className={styles.howToPlayTitle}>📖 How to Play</h3>
+            <ol className={styles.howToPlayList}>
+              <li>Create a new game or join an open game. Each action requires a 0.001 ETH stake.</li>
+              <li>Once two players are seated, the contract reveals five public cards numbered 1 through 13.</li>
+              <li>Each player privately selects one of the public cards. Selections are encrypted with Zama FHE and can overlap.</li>
+              <li>The final player to submit triggers reveal. Both encrypted choices are decrypted on-chain.</li>
+              <li>If both players chose the same card, the pot is burned and nobody wins. Otherwise, the higher card wins the 0.002 ETH pot.</li>
+              <li>The winner uses the claim button to withdraw the reward after the reveal.</li>
+            </ol>
+          </div>
+        </>
+      ) : (
+        <div className={styles.connectWallet}>
+          <div className={styles.emptyStateIcon}>🔐</div>
+          <div className={styles.connectWalletText}>Please connect your wallet on Sepolia to play</div>
+          <div style={{ marginTop: 16 }}>
+            <ConnectButton />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
