@@ -8,6 +8,7 @@ import "hardhat-gas-reporter";
 import type { HardhatUserConfig } from "hardhat/config";
 import "solidity-coverage";
 import * as dotenv from "dotenv";
+import { Wallet } from "ethers";
 dotenv.config();
 
 import "./tasks/accounts";
@@ -16,11 +17,16 @@ import "./tasks/FiveCardDraw";
 
 const INFURA_API_KEY: string = process.env.INFURA_API_KEY || "";
 const PRIVATE_KEY: string | undefined = process.env.PRIVATE_KEY;
+const NORMALIZED_PRIVATE_KEY = PRIVATE_KEY ? (PRIVATE_KEY.startsWith("0x") ? PRIVATE_KEY : `0x${PRIVATE_KEY}`) : undefined;
+const SEPOLIA_DEPLOYER_ADDRESS = NORMALIZED_PRIVATE_KEY ? new Wallet(NORMALIZED_PRIVATE_KEY).address : undefined;
 
 const config: HardhatUserConfig = {
   defaultNetwork: "hardhat",
   namedAccounts: {
-    deployer: 0,
+    deployer: {
+      default: 0,
+      sepolia: SEPOLIA_DEPLOYER_ADDRESS ?? 0,
+    },
   },
   etherscan: {
     apiKey: {
@@ -42,7 +48,7 @@ const config: HardhatUserConfig = {
       url: "http://localhost:8545",
     },
     sepolia: {
-      accounts: PRIVATE_KEY ? [PRIVATE_KEY.startsWith("0x") ? PRIVATE_KEY : `0x${PRIVATE_KEY}`] : [],
+      accounts: NORMALIZED_PRIVATE_KEY ? [NORMALIZED_PRIVATE_KEY] : [],
       chainId: 11155111,
       url: `https://sepolia.infura.io/v3/${INFURA_API_KEY}`,
     },
