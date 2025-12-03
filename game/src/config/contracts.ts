@@ -1,5 +1,5 @@
 // Contract on Sepolia. Set after deploying (must not use localhost).
-export const CONTRACT_ADDRESS = '0x7AC22d3d876f4a36c43A60F0850946ff02D42cc4';
+export const CONTRACT_ADDRESS = '0x1df802e4cdcD1b1435A37144f4740294FE39DDA7';
 
 // ABI copied from artifacts for FiveCardDraw
 export const CONTRACT_ABI = [

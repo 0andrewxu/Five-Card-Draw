@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {FHE, euint8, externalEuint8} from "@fhevm/solidity/lib/FHE.sol";
-import {SepoliaConfig} from "@fhevm/solidity/config/ZamaConfig.sol";
+import {ZamaEthereumConfig} from "@fhevm/solidity/config/ZamaConfig.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 
@@ -12,7 +12,7 @@ import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/Messa
 /// trigger open (no branching on ciphertext). Winner can claim 0.002 ether by revealing
 /// both plaintext choices with signatures from both players for verification.
 /// If choices are equal, both lose and funds remain locked in the contract.
-contract FiveCardDraw is SepoliaConfig {
+contract FiveCardDraw is ZamaEthereumConfig {
     using ECDSA for bytes32;
 
     uint256 public constant STAKE = 1e15; // 0.001 ether
